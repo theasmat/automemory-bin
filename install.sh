@@ -83,7 +83,7 @@ log_info "Detected Platform: ${OS} (${ARCH}) -> Target: ${TARGET_TRIPLE}"
 INSTALLED=false
 
 # 2. Check if running inside local repository clone with target/release/automemory
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || echo "")"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || echo "")"
 if [ -f "${SCRIPT_DIR}/target/release/${BINARY_NAME}" ]; then
     log_info "Using existing local release binary at ${SCRIPT_DIR}..."
     cp "${SCRIPT_DIR}/target/release/${BINARY_NAME}" "${INSTALL_DIR}/${BINARY_NAME}"
