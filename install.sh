@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # AutoMemory Universal Installer (macOS & Linux)
-# https://github.com/theasmat/automemory-bin
+# https://github.com/theasmat/automemory
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/theasmat/automemory-bin/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/theasmat/automemory/main/install.sh | bash
 # ==============================================================================
 
 set -euo pipefail
@@ -33,7 +33,7 @@ log_error() {
     printf "${RED}✗ Error:${RESET} %s\n" "$1" >&2
 }
 
-DIST_REPO="theasmat/automemory-bin"
+REPO="theasmat/automemory"
 BINARY_NAME="automemory"
 INSTALL_DIR="${HOME}/.cargo/bin"
 
@@ -59,7 +59,7 @@ case "${OS}" in
         TARGET_OS="unknown-linux-gnu"
         ;;
     *)
-        log_error "Unsupported OS: ${OS}. On Windows, use PowerShell: irm https://raw.githubusercontent.com/theasmat/automemory-bin/main/install.ps1 | iex"
+        log_error "Unsupported OS: ${OS}. On Windows, use PowerShell: irm https://raw.githubusercontent.com/theasmat/automemory/main/install.ps1 | iex"
         exit 1
         ;;
 esac
@@ -82,41 +82,49 @@ log_info "Detected Platform: ${OS} (${ARCH}) -> Target: ${TARGET_TRIPLE}"
 
 INSTALLED=false
 
-# 2. Check if running inside local repository clone with target/release/automemory
+# 2. Check if running inside repository clone
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || echo "")"
-if [ -f "${SCRIPT_DIR}/target/release/${BINARY_NAME}" ]; then
-    log_info "Using existing local release binary at ${SCRIPT_DIR}..."
-    cp "${SCRIPT_DIR}/target/release/${BINARY_NAME}" "${INSTALL_DIR}/${BINARY_NAME}"
-    INSTALLED=true
+if [ -f "${SCRIPT_DIR}/Cargo.toml" ] && grep -q 'automemory' "${SCRIPT_DIR}/Cargo.toml" 2>/dev/null; then
+    log_info "Detected local repository clone at ${SCRIPT_DIR}"
+    if [ -f "${SCRIPT_DIR}/target/release/${BINARY_NAME}" ]; then
+        log_info "Using existing local release binary..."
+        cp "${SCRIPT_DIR}/target/release/${BINARY_NAME}" "${INSTALL_DIR}/${BINARY_NAME}"
+        INSTALLED=true
+    elif command -v cargo >/dev/null 2>&1; then
+        log_info "Building release binary with Cargo..."
+        (cd "${SCRIPT_DIR}" && cargo build --release)
+        cp "${SCRIPT_DIR}/target/release/${BINARY_NAME}" "${INSTALL_DIR}/${BINARY_NAME}"
+        INSTALLED=true
+    fi
 fi
 
-# 3. Download pre-built release binary from public GitHub distribution repo
+# 3. If not installed from clone, try downloading pre-built GitHub release binary
 if [ "${INSTALLED}" = false ]; then
-    RELEASE_URL="https://github.com/${DIST_REPO}/releases/latest/download/automemory-${TARGET_TRIPLE}.tar.gz"
+    RELEASE_URL="https://github.com/${REPO}/releases/latest/download/automemory-${TARGET_TRIPLE}.tar.gz"
     TEMP_DIR="$(mktemp -d 2>/dev/null || mktemp -d -t 'automemory-install')"
     trap 'rm -rf "${TEMP_DIR}"' EXIT
 
-    log_info "Downloading official pre-built release from GitHub..."
+    log_info "Attempting to download pre-built release from GitHub..."
     if curl -fsSL -o "${TEMP_DIR}/automemory.tar.gz" "${RELEASE_URL}" 2>/dev/null; then
         tar -xzf "${TEMP_DIR}/automemory.tar.gz" -C "${TEMP_DIR}"
         if [ -f "${TEMP_DIR}/${BINARY_NAME}" ]; then
             chmod +x "${TEMP_DIR}/${BINARY_NAME}"
             mv "${TEMP_DIR}/${BINARY_NAME}" "${INSTALL_DIR}/${BINARY_NAME}"
             INSTALLED=true
-            log_success "Downloaded and verified binary for ${TARGET_TRIPLE}"
+            log_success "Downloaded pre-built binary for ${TARGET_TRIPLE}"
         fi
     fi
 fi
 
-# 4. If release download failed, fallback to cargo install if Rust is installed
+# 4. If release binary download failed, fallback to cargo install
 if [ "${INSTALLED}" = false ]; then
     if command -v cargo >/dev/null 2>&1; then
-        log_info "Pre-built binary asset not yet uploaded for ${TARGET_TRIPLE}. Building via cargo..."
-        cargo install --git "https://github.com/theasmat/automemory.git" --bin automemory
+        log_info "Release asset not available for ${TARGET_TRIPLE}. Building via cargo install..."
+        cargo install --git "https://github.com/${REPO}.git" --bin automemory
         INSTALLED=true
     else
-        log_error "Could not download pre-built binary for ${TARGET_TRIPLE}."
-        log_info "If you have Rust installed, run: cargo install --git https://github.com/theasmat/automemory.git"
+        log_error "Could not download pre-built binary and Rust/Cargo is not installed."
+        log_info "To install Rust and Cargo, run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
         exit 1
     fi
 fi
@@ -140,7 +148,7 @@ esac
 log_info "Verifying AutoMemory health diagnostics..."
 "${INSTALL_DIR}/${BINARY_NAME}" doctor || true
 
-# 7. Configure agents globally
+# 7. Offer to connect agents
 printf "\n"
 log_info "Configuring universal coding agent connectors..."
 if "${INSTALL_DIR}/${BINARY_NAME}" connect all -g; then

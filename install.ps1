@@ -1,9 +1,9 @@
 # ==============================================================================
 # AutoMemory Universal Windows Installer (PowerShell)
-# https://github.com/theasmat/automemory-bin
+# https://github.com/theasmat/automemory
 #
 # Usage (run in PowerShell):
-#   irm https://raw.githubusercontent.com/theasmat/automemory-bin/main/install.ps1 | iex
+#   irm https://raw.githubusercontent.com/theasmat/automemory/main/install.ps1 | iex
 # ==============================================================================
 
 $ErrorActionPreference = "Stop"
@@ -15,7 +15,7 @@ Write-Host "  Persistent Intelligence & Guardrails for AI Agents    "
 Write-Host "========================================================" -ForegroundColor Yellow
 Write-Host ""
 
-$distRepo = "theasmat/automemory-bin"
+$repo = "theasmat/automemory"
 $binaryName = "automemory.exe"
 
 # Target installation directory
@@ -39,33 +39,49 @@ Write-Host "==> Detected Platform: Windows ($arch) -> Target: $targetTriple" -Fo
 
 $installed = $false
 
-# 1. Download pre-built release binary from public GitHub release
-$zipUrl = "https://github.com/$distRepo/releases/latest/download/automemory-$targetTriple.zip"
-$tempZip = [System.IO.Path]::GetTempFileName() + ".zip"
-$tempExtract = Join-Path ([System.IO.Path]::GetTempPath()) "automemory_install_$(Get-Random)"
-
-Write-Host "==> Downloading official pre-built release from GitHub..." -ForegroundColor Cyan
-try {
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    Invoke-WebRequest -Uri $zipUrl -OutFile $tempZip -UseBasicParsing -TimeoutSec 30
-    Expand-Archive -Path $tempZip -DestinationPath $tempExtract -Force
-    if (Test-Path "$tempExtract\$binaryName") {
-        Copy-Item "$tempExtract\$binaryName" "$installDir\$binaryName" -Force
+# 1. Check if running inside cloned repo
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path -ErrorAction SilentlyContinue
+if ($scriptDir -and (Test-Path "$scriptDir\Cargo.toml")) {
+    Write-Host "==> Detected local repository clone at $scriptDir" -ForegroundColor Cyan
+    if (Get-Command cargo -ErrorAction SilentlyContinue) {
+        Write-Host "==> Compiling release binary with Cargo..." -ForegroundColor Cyan
+        Push-Location $scriptDir
+        cargo build --release
+        Copy-Item "$scriptDir\target\release\$binaryName" "$installDir\$binaryName" -Force
+        Pop-Location
         $installed = $true
-        Write-Host "✓ Downloaded pre-built binary for $targetTriple" -ForegroundColor Green
     }
-} catch {
-    Write-Warning "Could not download pre-built release: $($_.Exception.Message)"
-} finally {
-    if (Test-Path $tempZip) { Remove-Item -Path $tempZip -Force -ErrorAction SilentlyContinue }
-    if (Test-Path $tempExtract) { Remove-Item -Path $tempExtract -Recurse -Force -ErrorAction SilentlyContinue }
 }
 
-# 2. Fallback: cargo install
+# 2. Try downloading pre-built GitHub release binary
+if (-not $installed) {
+    $zipUrl = "https://github.com/$repo/releases/latest/download/automemory-$targetTriple.zip"
+    $tempZip = [System.IO.Path]::GetTempFileName() + ".zip"
+    $tempExtract = Join-Path ([System.IO.Path]::GetTempPath()) "automemory_install_$(Get-Random)"
+
+    Write-Host "==> Attempting to download pre-built release from GitHub..." -ForegroundColor Cyan
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        Invoke-WebRequest -Uri $zipUrl -OutFile $tempZip -UseBasicParsing -TimeoutSec 30
+        Expand-Archive -Path $tempZip -DestinationPath $tempExtract -Force
+        if (Test-Path "$tempExtract\$binaryName") {
+            Copy-Item "$tempExtract\$binaryName" "$installDir\$binaryName" -Force
+            $installed = $true
+            Write-Host "✓ Downloaded pre-built binary for $targetTriple" -ForegroundColor Green
+        }
+    } catch {
+        Write-Warning "Could not download pre-built release: $($_.Exception.Message)"
+    } finally {
+        if (Test-Path $tempZip) { Remove-Item -Path $tempZip -Force -ErrorAction SilentlyContinue }
+        if (Test-Path $tempExtract) { Remove-Item -Path $tempExtract -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+}
+
+# 3. Fallback: cargo install
 if (-not $installed) {
     if (Get-Command cargo -ErrorAction SilentlyContinue) {
         Write-Host "==> Building from source via cargo install..." -ForegroundColor Cyan
-        cargo install --git "https://github.com/theasmat/automemory.git" --bin automemory
+        cargo install --git "https://github.com/$repo.git" --bin automemory
         $installed = $true
     } else {
         Write-Error "Pre-built binary download was unavailable and Rust/Cargo is not installed. Please install Rust from https://rustup.rs"
@@ -76,7 +92,7 @@ if (-not $installed) {
 $exePath = Join-Path $installDir $binaryName
 Write-Host "✓ Binary installed to: $exePath" -ForegroundColor Green
 
-# 3. Check PATH environment variable
+# 4. Check PATH environment variable
 $userPath = [Environment]::GetEnvironmentVariable("Path", [EnvironmentVariableTarget]::User)
 if ($userPath -notlike "*$installDir*") {
     Write-Warning "$installDir is not in your User PATH environment variable."
@@ -85,7 +101,7 @@ if ($userPath -notlike "*$installDir*") {
     $env:Path = "$installDir;$env:Path"
 }
 
-# 4. Run health diagnostics
+# 5. Run health diagnostics
 Write-Host ""
 Write-Host "==> Verifying AutoMemory health diagnostics..." -ForegroundColor Cyan
 try {
@@ -94,7 +110,7 @@ try {
     Write-Warning "Doctor check encountered a warning: $($_.Exception.Message)"
 }
 
-# 5. Configure agents globally
+# 6. Offer to connect agents globally
 Write-Host ""
 Write-Host "==> Configuring universal coding agent connectors on Windows..." -ForegroundColor Cyan
 try {
